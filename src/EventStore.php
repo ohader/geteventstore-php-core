@@ -189,6 +189,7 @@ final class EventStore implements EventStoreInterface
      * @param  string                                  $streamName      The stream name
      * @param  WritableToStream                        $events          Single event or a collection of events
      * @param  int                                     $expectedVersion The expected version of the stream
+     * @return int|bool                                Either the created version or null otherwise
      * @throws Exception\WrongExpectedVersionException
      */
     public function writeToStream($streamName, WritableToStream $events, $expectedVersion = ExpectedVersion::ANY)
@@ -197,9 +198,11 @@ final class EventStore implements EventStoreInterface
             $events = new WritableEventCollection([$events]);
         }
 
+        $streamUrl = $this->getStreamUrl($streamName);
+
         $request = new Request(
             'POST',
-            $this->getStreamUrl($streamName),
+            $streamUrl,
             [
                 'ES-ExpectedVersion' => intval($expectedVersion),
                 'Content-Type' => 'application/vnd.eventstore.events+json',
@@ -210,10 +213,16 @@ final class EventStore implements EventStoreInterface
         $this->sendRequest($request);
 
         $responseStatusCode = $this->getLastResponse()->getStatusCode();
-
         if (ResponseCode::HTTP_BAD_REQUEST == $responseStatusCode) {
             throw new WrongExpectedVersionException();
         }
+
+        $locationHeaders = $this->getLastResponse()->getHeader('Location');
+        if (!empty($locationHeaders[0]) && strpos($locationHeaders[0], $streamUrl) === 0) {
+            return (int)trim(substr($locationHeaders[0], strlen($streamUrl)), '/');
+        }
+
+        return false;
     }
 
     /**
